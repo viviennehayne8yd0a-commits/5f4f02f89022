@@ -1,0 +1,697 @@
+version: 2.1
+
+jobs:
+  argon:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Restore vendored sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision build deps
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Grid parameters
+          command: |
+            echo nx=400 > pic.ini && echo dt=1e-11 >> pic.ini
+      - run:
+          name: make -f Makefile.gnu
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target argon -j2
+      - run:
+          name: PIC sheath, 20k steps
+          command: ./build/argon --steps 20000
+  carbon-ledger:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Fetch fixtures
+          command: tar xzf egg.tgz
+      - run:
+          name: Install prerequisites
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Emission factors
+          command: |
+            printf '%s,%s\n' diesel 2.68 electricity 0.495 > factors.csv
+      - run:
+          name: dotnet build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target carbon-ledger -j2
+      - run:
+          name: Monthly scope-1/2 totals
+          command: ./build/carbon-ledger --month 2026-10
+  NixEvalTime:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Sync asset bundles
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision compiler
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Flake lock placeholder
+          command: |
+            echo '{"nodes":{},"version":7}' > flake.lock
+      - run:
+          name: nix build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target NixEvalTime -j2
+      - run:
+          name: Time evaluation of 200 attrs
+          command: ./build/NixEvalTime --attrs 200
+  quill:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack toolkit
+          command: tar xzf egg.tgz
+      - run:
+          name: Install toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Create empty notebook
+          command: |
+            [ -s draft.ipynb ] || echo '{"cells":[],"nbformat":4}' > draft.ipynb
+      - run:
+          name: nbconvert (no compile step)
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target quill -j2
+      - run:
+          name: Execute notebook headless
+          command: ./build/quill draft.ipynb --timeout 600
+  vlan_planner:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Hydrate workspace
+          command: tar xzf egg.tgz
+      - run:
+          name: Bootstrap toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Switch inventory
+          command: |
+            seq -w 1 24|sed 's/^/sw/' > switches.txt
+      - run:
+          name: dotnet publish -r linux-x64
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target vlan_planner -j2
+      - run:
+          name: Allocate VLAN ids and trunks
+          command: ./build/vlan_planner switches.txt --vlans 40
+  crabgraph:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Extract sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Prepare build environment
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Adjacency as edge list
+          command: |
+            seq 1 1000|awk '{print $1, ($1*13)%1000}' > g.edges
+      - run:
+          name: cargo build --release --features simd
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target crabgraph -j2
+      - run:
+          name: Strongly connected components
+          command: ./build/crabgraph g.edges --algo tarjan
+  ElevatorSim:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Restore build cache
+          command: tar xzf egg.tgz
+      - run:
+          name: Install build tools
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Floor call events
+          command: |
+            shuf -i 1-20 -n 200 -r > calls.txt
+      - run:
+          name: javac -d out src/*.java
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target ElevatorSim -j2
+      - run:
+          name: Dispatch 4 cars, 8 hours
+          command: ./build/ElevatorSim --cars 4 --hours 8 --algo scan
+  sdrfmdemod:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Pull reference data
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision SDK
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: IQ capture stub
+          command: |
+            head -c 262144 /dev/urandom > iq.cu8
+      - run:
+          name: make -j4
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target sdrfmdemod -j2
+      - run:
+          name: Wideband FM demod
+          command: ./build/sdrfmdemod iq.cu8 --rate 2.4M --freq 99.7M
+  semver_bump:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Stage inputs
+          command: tar xzf egg.tgz
+      - run:
+          name: Set up compiler
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Commit subjects
+          command: |
+            for m in 'feat: add export' 'fix: null deref' 'feat!: drop v1 api'; do echo "$m"; done > commits.txt
+      - run:
+          name: npm run build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target semver_bump -j2
+      - run:
+          name: Decide next version
+          command: ./build/semver_bump commits.txt --current 2.4.1
+  nickel:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack bundle
+          command: tar xzf egg.tgz
+      - run:
+          name: Install dependencies
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Long article
+          command: |
+            for _ in $(seq 400); do echo 'The council met on Tuesday to discuss the budget.'; done > article.txt && gzip -k article.txt
+      - run:
+          name: pip install .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target nickel -j2
+      - run:
+          name: Extractive summary, 5 sentences
+          command: ./build/nickel article.txt.gz --sentences 5
+  ember_v2:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Rehydrate tree
+          command: tar xzf egg.tgz
+      - run:
+          name: Prepare toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: PM2.5 hourly
+          command: |
+            seq 7 2 55 > pm25.txt
+      - run:
+          name: pip wheel .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target ember_v2 -j2
+      - run:
+          name: NowCast AQI
+          command: ./build/ember_v2 pm25.txt --method epa
+  abtest-reader:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Fetch corpus
+          command: tar xzf egg.tgz
+      - run:
+          name: Bring up build env
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Variant counts
+          command: |
+            printf 'A %d %d\nB %d %d\n' 10234 512 10190 571 > counts.txt
+      - run:
+          name: Skip build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target abtest-reader -j2
+      - run:
+          name: Sequential test, 2 arms
+          command: ./build/abtest-reader counts.txt --alpha 0.05 --power 0.8
+  pixelupscale:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Checkout vendored deps
+          command: tar xzf egg.tgz
+      - run:
+          name: Install cmake and g++
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Sprite sheet stub
+          command: |
+            head -c 16384 /dev/urandom > sheet.rgba
+      - run:
+          name: Compile with cc -O2
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target pixelupscale -j2
+      - run:
+          name: xBRZ 4x upscale
+          command: ./build/pixelupscale sheet.rgba 64 64 --factor 4
+  chalk:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Prime workspace
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision deps
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Test timings
+          command: |
+            seq 1 400|awk '{print "t"$1, $1%17+1}' > timings.txt
+      - run:
+          name: go test -c
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target chalk -j2
+      - run:
+          name: Balance 400 tests into 8 shards
+          command: ./build/chalk timings.txt --shards 8
+  walnut:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack payload
+          command: tar xzf egg.tgz
+      - run:
+          name: Set up build deps
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Rule overrides
+          command: |
+            ( echo 'no-unused-vars: error' > .lintrc; echo 'max-len: 100' >> .lintrc )
+      - run:
+          name: npm run build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target walnut -j2
+      - run:
+          name: Lint 4k files with cache
+          command: ./build/walnut src/ --cache --max-warnings 0
+  heron:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Restore snapshot
+          command: tar xzf egg.tgz
+      - run:
+          name: Install native deps
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Trip requests
+          command: |
+            shuf -i 1-5000 -n 1000 > requests.txt
+      - run:
+          name: go build .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target heron -j2
+      - run:
+          name: Pool trips within 7 min detour
+          command: ./build/heron --detour 7
+  spectra-db:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Fetch sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Bootstrap compiler
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Index compound table
+          command: |
+            seq 100 199|awk '{print "C"$1"H"($1*2)}' > compounds.txt
+      - run:
+          name: ghc -O2
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target spectra-db -j2
+      - run:
+          name: Match spectra by fingerprint
+          command: ./build/spectra-db --mz-tol 0.01
+  thermostat_mpc:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unroll archive
+          command: tar xzf egg.tgz
+      - run:
+          name: Prepare SDK
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Room thermal params
+          command: |
+            ( echo C=5200 > room.cfg; echo R=0.015 >> room.cfg )
+      - run:
+          name: make firmware
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target thermostat_mpc -j2
+      - run:
+          name: Model-predictive heating schedule
+          command: ./build/thermostat_mpc --horizon 24 --cfg room.cfg
+  rentRoll:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Seed workspace
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Lease list
+          command: |
+            seq 101 130|sed 's/$/ 18000/' > leases.txt
+      - run:
+          name: No build step
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target rentRoll -j2
+      - run:
+          name: Monthly rent roll and arrears
+          command: ./build/rentRoll leases.txt --month 2026-10
+  h3_bench:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Install essentials
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: URL list
+          command: |
+            LC_ALL=C echo https://h3.test/a > urls.txt && echo https://h3.test/b >> urls.txt
+      - run:
+          name: cmake --build build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target h3_bench -j2
+      - run:
+          name: 10k requests over HTTP/3
+          command: ./build/h3_bench urls.txt --n 10000 --c 50
+  demandFcWeekly:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Restore vendored sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision build deps
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Weekly history
+          command: |
+            seq -f '%g 0' 1 104 > hist.txt
+      - run:
+          name: pip wheel .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target demandFcWeekly -j2
+      - run:
+          name: 13-week forecast, ETS
+          command: ./build/demandFcWeekly hist.txt --horizon 13
+  sched-cfs-sim:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Fetch fixtures
+          command: tar xzf egg.tgz
+      - run:
+          name: Install prerequisites
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Thread mix
+          command: |
+            printf 'cpu %d\nio %d\n' 8 24 > mix.txt
+      - run:
+          name: cargo build --release --features serde
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target sched-cfs-sim -j2
+      - run:
+          name: Simulate 10 s of CFS
+          command: ./build/sched-cfs-sim mix.txt --cores 4 --seconds 10
+  demand_response:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Sync asset bundles
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision compiler
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Enrolled loads
+          command: |
+            seq 1 120 > loads.txt
+      - run:
+          name: CGO_ENABLED=0 go build .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target demand_response -j2
+      - run:
+          name: Shed 3 MW at 14:00 event
+          command: ./build/demand_response loads.txt --target 3000 --event 14:00
+  lupine:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack toolkit
+          command: tar xzf egg.tgz
+      - run:
+          name: Install toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Beam angles
+          command: |
+            seq 0 72 288 > beams.txt
+      - run:
+          name: cmake --build build --config Release
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target lupine -j2
+      - run:
+          name: Dose calculation, 5 beams
+          command: ./build/lupine beams.txt --grid 2.5mm
+  MsPacmanRl:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Hydrate workspace
+          command: tar xzf egg.tgz
+      - run:
+          name: Bootstrap toolchain
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Reset replay buffer
+          command: |
+            truncate -s 0 replay.bin
+      - run:
+          name: pip install -e .
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target MsPacmanRl -j2
+      - run:
+          name: Train DQN, 2M frames
+          command: ./build/MsPacmanRl --frames 2000000 --eps-decay 0.9995 --ckpt every=50000
+  posEod:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Extract sources
+          command: tar xzf egg.tgz
+      - run:
+          name: Prepare build environment
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Receipt tape
+          command: |
+            awk -v s='SALE 120 CASH' 'BEGIN{for(i=0;i<300;i++)print s}' > tape.txt && wc -l < tape.txt > count.txt
+      - run:
+          name: Skip build (prebuilt)
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target posEod -j2
+      - run:
+          name: End-of-day reconciliation
+          command: ./build/posEod tape.txt --drawer 5000
+  brindle:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Restore build cache
+          command: tar xzf egg.tgz
+      - run:
+          name: Install build tools
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Flag definitions
+          command: |
+            command echo 'new_checkout=25%' > flags.txt && echo 'dark_mode=on' >> flags.txt
+      - run:
+          name: npm run build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target brindle -j2
+      - run:
+          name: Evaluate flags for 10k users
+          command: ./build/brindle flags.txt --users 10000
+  pwa-shell:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Pull reference data
+          command: tar xzf egg.tgz
+      - run:
+          name: Provision SDK
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Service-worker stub
+          command: |
+            mkdir -p public && echo 'self.addEventListener("install",()=>{});' > public/sw.js
+      - run:
+          name: vite build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target pwa-shell -j2
+      - run:
+          name: Lighthouse PWA audit
+          command: ./build/pwa-shell public/ --preset mobile
+  erasure104:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Stage inputs
+          command: tar xzf egg.tgz
+      - run:
+          name: Set up compiler
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Data blocks
+          command: |
+            head -c 1048576 /dev/urandom > data.bin && split -b 104858 data.bin blk_
+      - run:
+          name: cargo build -r
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target erasure104 -j2
+      - run:
+          name: Encode 4 parity, lose 3, recover
+          command: ./build/erasure104 blk_* --k 10 --m 4
+  contract-redline:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large.gen2
+    steps:
+      - checkout
+      - run:
+          name: Unpack bundle
+          command: tar xzf egg.tgz
+      - run:
+          name: Install dependencies
+          command: sudo apt-get update && sudo apt-get install -y cmake g++
+      - run:
+          name: Two draft versions
+          command: |
+            echo 'Term: 12 months' > v1.txt && sed 's/12/24/' v1.txt > v2.txt
+      - run:
+          name: dotnet build
+          command: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --target contract-redline -j2
+      - run:
+          name: Redline clauses between drafts
+          command: ./build/contract-redline v1.txt v2.txt --out redline.docx
+
+workflows:
+  main:
+    jobs:
+      - argon
+      - carbon-ledger
+      - NixEvalTime
+      - quill
+      - vlan_planner
+      - crabgraph
+      - ElevatorSim
+      - sdrfmdemod
+      - semver_bump
+      - nickel
+      - ember_v2
+      - abtest-reader
+      - pixelupscale
+      - chalk
+      - walnut
+      - heron
+      - spectra-db
+      - thermostat_mpc
+      - rentRoll
+      - h3_bench
+      - demandFcWeekly
+      - sched-cfs-sim
+      - demand_response
+      - lupine
+      - MsPacmanRl
+      - posEod
+      - brindle
+      - pwa-shell
+      - erasure104
+      - contract-redline
